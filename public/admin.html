@@ -1,0 +1,395 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Tournament Admin</title>
+  <link rel="stylesheet" href="style.css">
+  <style>
+    /* Modal Styles */
+    .modal {
+      display: none;
+      position: fixed;
+      z-index: 1;
+      left: 0;
+      top: 0;
+      width: 100%;
+      height: 100%;
+      background-color: rgba(0,0,0,0.4);
+    }
+    .modal-content {
+      background: white;
+      margin: 10% auto;
+      padding: 20px;
+      border-radius: 8px;
+      width: 80%;
+      max-width: 600px;
+    }
+    .close {
+      float: right;
+      font-size: 28px;
+      cursor: pointer;
+    }
+    
+    /* Score Input Styles */
+    .score-inputs {
+      display: flex;
+      justify-content: space-between;
+      margin: 20px 0;
+    }
+    .score-input {
+      width: 60px;
+      font-size: 24px;
+      text-align: center;
+      padding: 10px;
+    }
+    .vs {
+      align-self: center;
+      font-size: 24px;
+      margin: 0 20px;
+    }
+    
+    /* Player Stats */
+    .score-details {
+      background: #f8f9fa;
+      padding: 15px;
+      border-radius: 5px;
+      margin-top: 10px;
+    }
+    .player-stats {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+    }
+    .stat-input {
+      width: 50px;
+      text-align: center;
+      margin: 0 5px;
+    }
+    
+    /* Bracket Styles */
+    .round {
+      margin-bottom: 30px;
+      padding-bottom: 20px;
+      border-bottom: 1px solid #eee;
+    }
+    .match {
+      background: white;
+      border: 1px solid #ddd;
+      border-radius: 5px;
+      padding: 15px;
+      margin: 10px 0;
+    }
+    .match.completed {
+      background: #f0fff0;
+    }
+    .match-teams {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .team {
+      flex: 1;
+      padding: 10px;
+    }
+    .winner {
+      font-weight: bold;
+      color: #2e7d32;
+    }
+    .score {
+      font-weight: bold;
+      margin-left: 10px;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>🏆 Tournament Admin</h1>
+    
+    <div id="setup" class="card">
+      <h2>Create Tournament</h2>
+      <input type="text" id="tournamentName" placeholder="Tournament Name" class="input-field">
+      
+      <h3>Players</h3>
+      <div id="playerFields">
+        <div class="player-input">
+          <input type="text" placeholder="Player Name" class="player-name input-field">
+          <input type="text" placeholder="Club" class="player-club input-field">
+          <input type="hidden" class="player-id" value="1">
+        </div>
+      </div>
+      
+      <div class="button-group">
+        <button onclick="addPlayerField()" class="btn">Add Player</button>
+        <button onclick="createTournament()" class="btn btn-primary">Create Tournament</button>
+      </div>
+    </div>
+    
+    <div id="tournamentControl" class="hidden card">
+      <h2>Manage Tournament</h2>
+      <div id="bracketView"></div>
+      
+      <!-- Score Update Modal -->
+      <div id="scoreModal" class="modal">
+        <div class="modal-content">
+          <span class="close" onclick="closeModal()">&times;</span>
+          <h3>Update Match Score</h3>
+          <div id="matchTitle" class="match-title"></div>
+          
+          <div class="score-inputs">
+            <div class="team-card">
+              <h4 id="teamAName"></h4>
+              <input type="number" id="scoreA" min="0" class="score-input" value="0">
+              <div class="score-details">
+                <h5>Player Statistics</h5>
+                <div id="playersA" class="player-stats"></div>
+              </div>
+            </div>
+            
+            <div class="vs">vs</div>
+            
+            <div class="team-card">
+              <h4 id="teamBName"></h4>
+              <input type="number" id="scoreB" min="0" class="score-input" value="0">
+              <div class="score-details">
+                <h5>Player Statistics</h5>
+                <div id="playersB" class="player-stats"></div>
+              </div>
+            </div>
+          </div>
+          
+          <button onclick="submitScore()" class="btn btn-primary" style="width: 100%;">Save Score</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="/socket.io/socket.io.js"></script>
+  <script>
+    const socket = io();
+    let tournament = {};
+    let currentMatchId = null;
+    let nextPlayerId = 2;
+
+    // Initialize
+    document.addEventListener('DOMContentLoaded', () => {
+      document.querySelector('.close').addEventListener('click', closeModal);
+    });
+
+    // Tournament creation
+    function addPlayerField() {
+      const container = document.getElementById('playerFields');
+      const newField = document.createElement('div');
+      newField.className = 'player-input';
+      newField.innerHTML = `
+        <input type="text" placeholder="Player Name" class="player-name input-field">
+        <input type="text" placeholder="Club" class="player-club input-field">
+        <input type="hidden" class="player-id" value="${nextPlayerId++}">
+      `;
+      container.appendChild(newField);
+    }
+
+    function createTournament() {
+      const name = document.getElementById('tournamentName').value;
+      const nameInputs = document.querySelectorAll('.player-name');
+      const clubInputs = document.querySelectorAll('.player-club');
+      const idInputs = document.querySelectorAll('.player-id');
+      
+      const players = Array.from(nameInputs).map((input, index) => ({
+        id: parseInt(idInputs[index].value),
+        name: input.value,
+        club: clubInputs[index].value,
+        team: [
+          { id: parseInt(idInputs[index].value), name: input.value }
+        ],
+        stats: { goals: 0, assists: 0, cleanSheets: 0 }
+      }));
+
+      if (players.length < 2 || !name) {
+        alert('Please enter tournament name and at least 2 players');
+        return;
+      }
+
+      if (![2,4,8,16].includes(players.length)) {
+        alert('Number of players must be 2, 4, 8, or 16');
+        return;
+      }
+
+      socket.emit('createTournament', { name, players });
+    }
+
+    // Score management
+    function openScoreModal(matchId) {
+      currentMatchId = matchId;
+      const match = tournament.matches.find(m => m.matchId === matchId);
+      
+      document.getElementById('matchTitle').textContent = `Match ${matchId.split('-')[1] + 1}`;
+      document.getElementById('teamAName').textContent = `${match.playerA.name} (${match.playerA.club})`;
+      document.getElementById('teamBName').textContent = `${match.playerB.name} (${match.playerB.club})`;
+      
+      // Generate player stat inputs for Team A
+      const playersA = document.getElementById('playersA');
+      playersA.innerHTML = '';
+      match.playerA.team.forEach(player => {
+        playersA.innerHTML += `
+          <div>${player.name}</div>
+          <div>
+            <input type="number" class="stat-input" id="${player.id}-goals" placeholder="G" min="0" value="0">
+            <input type="number" class="stat-input" id="${player.id}-assists" placeholder="A" min="0" value="0">
+            <input type="checkbox" id="${player.id}-cleansheet"> CS
+          </div>
+        `;
+      });
+      
+      // Generate player stat inputs for Team B
+      const playersB = document.getElementById('playersB');
+      playersB.innerHTML = '';
+      match.playerB.team.forEach(player => {
+        playersB.innerHTML += `
+          <div>${player.name}</div>
+          <div>
+            <input type="number" class="stat-input" id="${player.id}-goals" placeholder="G" min="0" value="0">
+            <input type="number" class="stat-input" id="${player.id}-assists" placeholder="A" min="0" value="0">
+            <input type="checkbox" id="${player.id}-cleansheet"> CS
+          </div>
+        `;
+      });
+      
+      document.getElementById('scoreModal').style.display = 'block';
+    }
+
+    function closeModal() {
+      document.getElementById('scoreModal').style.display = 'none';
+    }
+
+    function submitScore() {
+      const scoreA = parseInt(document.getElementById('scoreA').value) || 0;
+      const scoreB = parseInt(document.getElementById('scoreB').value) || 0;
+      
+      const match = tournament.matches.find(m => m.matchId === currentMatchId);
+      const details = {
+        playersA: match.playerA.team.map(player => ({
+          id: player.id,
+          goals: parseInt(document.getElementById(`${player.id}-goals`).value) || 0,
+          assists: parseInt(document.getElementById(`${player.id}-assists`).value) || 0,
+          cleanSheet: document.getElementById(`${player.id}-cleansheet`).checked && scoreB === 0
+        })),
+        playersB: match.playerB.team.map(player => ({
+          id: player.id,
+          goals: parseInt(document.getElementById(`${player.id}-goals`).value) || 0,
+          assists: parseInt(document.getElementById(`${player.id}-assists`).value) || 0,
+          cleanSheet: document.getElementById(`${player.id}-cleansheet`).checked && scoreA === 0
+        }))
+      };
+      
+      socket.emit('updateScore', {
+        matchId: currentMatchId,
+        scoreA,
+        scoreB,
+        details
+      });
+      
+      closeModal();
+    }
+
+    // Bracket rendering
+    function renderBracket(data) {
+      const bracketView = document.getElementById('bracketView');
+      bracketView.innerHTML = `<h3>${data.name}</h3>`;
+      
+      if (data.winner) {
+        bracketView.innerHTML += `
+          <div class="winner-card">
+            <h2>🏆 Tournament Winner 🏆</h2>
+            <p>${data.winner.name} (${data.winner.club})</p>
+          </div>
+        `;
+      }
+      
+      data.bracket.forEach((round, roundIndex) => {
+        const roundDiv = document.createElement('div');
+        roundDiv.className = 'round';
+        
+        roundDiv.innerHTML = `
+          <div class="round-header">
+            <h4>${getRoundName(round.roundNumber, data.bracket.length)}</h4>
+            ${roundIndex > 0 && !data.bracket[roundIndex-1].complete ? 
+              '<span class="round-status">Awaiting previous round</span>' : ''}
+          </div>
+        `;
+        
+        round.matches.forEach((match, matchIndex) => {
+          const matchDiv = document.createElement('div');
+          matchDiv.className = `match ${match.winner ? 'completed' : ''}`;
+          
+          const teamAClass = match.winner === match.playerA ? 'winner' : '';
+          const teamBClass = match.winner === match.playerB ? 'winner' : '';
+          
+          matchDiv.innerHTML = `
+            <div class="match-teams">
+              <div class="team ${teamAClass}">
+                ${match.playerA?.name || 'TBD'} 
+                ${match.scoreA !== null ? `<span class="score">${match.scoreA}</span>` : ''}
+              </div>
+              <div class="vs">vs</div>
+              <div class="team ${teamBClass}">
+                ${match.playerB?.name || 'TBD'}
+                ${match.scoreB !== null ? `<span class="score">${match.scoreB}</span>` : ''}
+              </div>
+            </div>
+            ${!match.winner && (!roundIndex || data.bracket[roundIndex-1].complete) ? 
+              `<button onclick="openScoreModal('${match.matchId}')" class="btn">Enter Score</button>` : ''}
+          `;
+          
+          roundDiv.appendChild(matchDiv);
+        });
+        
+        bracketView.appendChild(roundDiv);
+      });
+      
+      // Show tournament stats if complete
+      if (data.winner && data.stats) {
+        bracketView.innerHTML += `
+          <div class="stats-card">
+            <h3>Tournament Statistics</h3>
+            <p>Top Scorer: ${data.stats.topScorer?.name} (${data.stats.topScorer?.stats?.goals || 0} goals)</p>
+            <p>Most Assists: ${data.stats.mostAssists?.name} (${data.stats.mostAssists?.stats?.assists || 0} assists)</p>
+            <p>Best Defense: ${data.stats.bestDefense?.name} (${data.stats.bestDefense?.stats?.cleanSheets || 0} clean sheets)</p>
+          </div>
+        `;
+      }
+    }
+
+    function getRoundName(roundNumber, totalRounds) {
+      const roundNames = {
+        1: ['Final', 'Semifinals', 'Quarterfinals', 'Round of 16'],
+        2: ['Final', 'Semifinals', 'Quarterfinals'],
+        3: ['Final', 'Semifinals'],
+        4: ['Final']
+      };
+      return roundNames[totalRounds][roundNumber - 1] || `Round ${roundNumber}`;
+    }
+
+    // Socket event listeners
+    socket.on('tournamentUpdate', (data) => {
+      tournament = data;
+      
+      if (data.isStarted || data.winner) {
+        document.getElementById('setup').classList.add('hidden');
+        document.getElementById('tournamentControl').classList.remove('hidden');
+      } else {
+        document.getElementById('setup').classList.remove('hidden');
+        document.getElementById('tournamentControl').classList.add('hidden');
+      }
+      
+      renderBracket(data);
+    });
+
+    // Close modal when clicking outside
+    window.onclick = function(event) {
+      const modal = document.getElementById('scoreModal');
+      if (event.target === modal) {
+        closeModal();
+      }
+    }
+  </script>
+</body>
+</html>

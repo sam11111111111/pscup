@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Tournament Viewer</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div class="container">
+    <h1 id="tournamentTitle">Waiting for tournament to start...</h1>
+    
+    <div id="playerView" class="card">
+      <div id="bracketView"></div>
+      <div id="announcements"></div>
+    </div>
+    
+    <div class="card">
+      <h2>Live Chat</h2>
+      <div id="chatBox"></div>
+      <input type="text" id="chatInput" placeholder="Type your message...">
+      <button onclick="sendChat()">Send</button>
+    </div>
+  </div>
+
+  <script src="/socket.io/socket.io.js"></script>
+  <script src="player.js"></script>
+</body>
+</html>
